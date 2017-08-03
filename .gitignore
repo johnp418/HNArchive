@@ -1,3 +1,7 @@
+# Project related
+HackerNews.html
+storage/
+
 # Logs
 logs
 *.log
@@ -56,4 +60,5 @@ typings/
 
 # dotenv environment variables file
 .env
+
 
