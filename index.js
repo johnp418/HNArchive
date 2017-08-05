@@ -20,14 +20,19 @@ let defaultOptions = {
   sortBy: '', // ['rank', 'vote', 'comments', 'time']
   storeBy: ['daily','all'], // ['date'],
   saveDir: './storage',
+  scrapeDelay: 1000 * 60 * 60 // 1 Hour
 }
 
-const HNStore = ((options) => {
+const HNArchive = ((options) => {
   if (!options) {
     options = defaultOptions;
   }
+  this.scrapeDelay = options.scrapeDelay;
   this.pages = [];
   this.data = [];
+
+  this.fetchInterval = null;
+  
   let secret = `...secret...`;
   
   /**
@@ -69,11 +74,11 @@ const HNStore = ((options) => {
   	  if (urls.length === 0) {
   	    Promise.all(promises).then((pages) => {
   	      console.log('all promises are resolved');
-	      clearInterval(reqInterval);
 	      resolve(this._process(pages));
   	    }).catch(err => {
   	      reject(err);
   	    });
+	    clearInterval(reqInterval);
   	  } else {
   	    promises.push(createReqPromise(urls.shift()));
   	  }
@@ -82,6 +87,7 @@ const HNStore = ((options) => {
     });
   };
 
+  // TODO: Filter in server? 
   this._filter = (pages) => {
     let searchKeywords = options.searchBy;
     let newsCounter = 0;
@@ -94,7 +100,7 @@ const HNStore = ((options) => {
 
   /**
    * Iterate through retrieved html pages and extract news object
-   * @method _process
+   * @method _process Synchronous
    * @param null
    * @return null
    */
@@ -107,8 +113,9 @@ const HNStore = ((options) => {
     if (options.searchBy && options.searchBy.length > 0) {
       pages = this._filter(pages);
     } else {
+      
       // Loop over pages and extract news 
-      for (let page of pages) {
+      pages.forEach((page) => {
 	let $ = cheerio.load(page);
 	let itemList = $('body').find('.itemlist'),
 	    listBody = $(itemList).children('tbody');
@@ -124,16 +131,11 @@ const HNStore = ((options) => {
 	    if (link.startsWith('item?id')) {
 	      link = HNLink + link;
 	    }
-  	    let news = {
-  	      rank,
-  	      title,
-  	      link,
-	      score,
-  	    }
+  	    let news = { rank, title, link, score, }
   	    data.push(news);
 	  }
 	});
-      }
+      });
       /* console.log(`${data}`);*/
     }
     return data;
@@ -141,45 +143,39 @@ const HNStore = ((options) => {
 
   this._merge = (filePath, dataJSON) => {
     console.log('Merge');
-    return new Promise((resolve, reject) => {
-      fs.readFile(filePath, (err, data) => {
-	if (err) {
-	  reject(err);
-	  return;
-	}
-	resolve(JSON.parse(data));
-      });
-    }).then((prevJSON) => {
+
+    return this._readFile(filePath).then((dataString) => {
+      let parsed = JSON.parse(dataString);
       // Merge Step
       let newsMap = {},
 	  merged = [],
 	  rankStart = 1;
 
-      for (let i = 0; i < dataJSON.length; i++) {
-	newsMap[dataJSON[i].title] = dataJSON[i];
-      }
+      dataJSON.forEach((data, index) => {
+	newsMap[data.title] = data;
+      });
 
       // Updates score only if the news is duplicate
-      for (let i = 0; i < prevJSON.length; i++) {
-	let title = prevJSON[i].title;
+      prevJSON.forEach((prevData, index) => {
+	let title = prevData.title;
 	if (title in newsMap) {
-	  newsMap[title].score = prevJSON[i].score;
+	  newsMap[title].score = prevData.score;
 	  continue;
 	}
-	newsMap[title] = prevJSON[i];
-      }
-
+	newsMap[title] = prevData;
+      });
+      
       for (let key in newsMap) {
 	let news = newsMap[key];
 	news.rank = rankStart;
 	rankStart++;
 	merged.push(news);
       }
-
+      
       console.log('merged length', merged.length);
       return this._generateHTML(merged).then((success) => {
-	return this._saveJSON(filePath, merged);
-      });
+	return this._writeFile(filePath, JSON.stringify(merged));
+      });      
     });
   }
   
@@ -213,11 +209,15 @@ const HNStore = ((options) => {
 	  return this._merge(filePath, data);
 	} else {
 	  return this._generateHTML(data).then((success) => {
-	    return this._saveJSON(filePath, data);
+	    return this._writeFile(filePath, JSON.stringify(data));
 	  });
 	}
-      }).then(() => {
-	resolve();
+      }).then((successWrite) => {
+	if (successWrite) {
+	  resolve();
+	  return;
+	}
+	reject('Failed to write');
       }).catch(err => {
 	reject(err);
       });
@@ -225,17 +225,6 @@ const HNStore = ((options) => {
     
   }
 
-  this._saveJSON = (filePath, data) => {
-    return new Promise((resolve, reject) => {
-      fs.writeFile(filePath, JSON.stringify(data), (err) => {
-	if (err) {
-	  reject(err);
-	  return;
-	}
-	resolve();
-      });
-    });
-  }
 
   /**
    * Creates a folder with given name if it does not exist already
@@ -268,15 +257,8 @@ const HNStore = ((options) => {
    */
   this._generateHTML = (dataJSON) => {
     console.log('generateHTML');
-    return new Promise((resolve, reject) => {
-      fs.readFile(templateHTMLPath, (err, html) => {
-	if (err) {
-	  reject(err);
-	  return;
-	}
-	resolve(html);
-      });
-    }).then((html) => {
+
+    return this._readFile(templateHTMLPath).then((html) => {
       return new Promise((resolve, reject) => {
 	let $ = cheerio.load(html);
 
@@ -285,14 +267,31 @@ const HNStore = ((options) => {
 	  let itemHTML = `<dt><label>${rank} </label><a href=${link}>${title}</a></dt>`
 	  $(itemHTML).appendTo($('.itemlist'));
 	});
-	
-	fs.writeFile(prettyHTMLPath, $.html(), (err) => {
-	  if (err) {
-	    reject(err);
-	    return;
-	  }
-	  resolve(true);
-	});
+	return this._writeFile(prettyHTMLPath, $.html());
+      });
+    });
+  }
+
+  this._readFile = (filePath) => {
+    return new Promise((resolve, reject) => {
+      fs.readFile(filePath, (err, data) => {
+	if (err) {
+	  reject(err);
+	  return;
+	}
+	resolve(data);
+      });
+    });
+  }
+
+  this._writeFile = (filePath, data) => {
+    return new Promise((resolve, reject) => {
+      fs.writeFile(filePath, data, (err) => {
+	if (err) {
+	  reject(err);
+	  return;
+	}
+	resolve(true);
       });
     });
   }
@@ -300,9 +299,10 @@ const HNStore = ((options) => {
   this._clear = () => {
     this.pages = [];
     this.data = [];
+    clearInterval(this.fetchInterval);
   }
 
-  this.start = () => {
+  this.scrape = () => {
     return new Promise((resolve, reject) => {
       this._fetch()
 	  .then((pages) => this._save(pages))
@@ -312,13 +312,26 @@ const HNStore = ((options) => {
 	  });
     });
   }
-  
+
+  this.start = () => {
+    if (this.fetchInterval) {
+      console.log('There is already an interval');
+    }
+    // Starts interval for fetching
+    this.fetchInterval = setInterval(() => {
+      this.scrape();
+    }, this.scrapeDelay);
+  }
+
+  this.stop = () => {
+    this.clear();
+  }
   
   return this;
 })();
 
-module.exports = HNStore;
+module.exports = HNArchive;
 
-/* HNStore.generateHTML();*/
+/* HNArchive.generateHTML();*/
 
-HNStore.start();
+HNArchive.scrape();
