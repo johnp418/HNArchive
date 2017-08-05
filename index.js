@@ -141,17 +141,17 @@ const HNArchive = ((options) => {
     return data;
   };
 
-  this._merge = (filePath, dataJSON) => {
+  this._merge = (filePath, currentDataJSON) => {
     console.log('Merge');
 
     return this._readFile(filePath).then((dataString) => {
-      let parsed = JSON.parse(dataString);
+      let prevJSON = JSON.parse(dataString);
       // Merge Step
       let newsMap = {},
 	  merged = [],
 	  rankStart = 1;
 
-      dataJSON.forEach((data, index) => {
+      currentDataJSON.forEach((data, index) => {
 	newsMap[data.title] = data;
       });
 
@@ -160,9 +160,9 @@ const HNArchive = ((options) => {
 	let title = prevData.title;
 	if (title in newsMap) {
 	  newsMap[title].score = prevData.score;
-	  continue;
+	} else {
+	  newsMap[title] = prevData;
 	}
-	newsMap[title] = prevData;
       });
       
       for (let key in newsMap) {
