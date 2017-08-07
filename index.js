@@ -259,16 +259,14 @@ const HNArchive = ((options) => {
     console.log('generateHTML');
 
     return this._readFile(templateHTMLPath).then((html) => {
-      return new Promise((resolve, reject) => {
-	let $ = cheerio.load(html);
+      let $ = cheerio.load(html);
 
-	dataJSON.forEach((data) => {
-	  let {rank, title, link} = data;
-	  let itemHTML = `<dt><label>${rank} </label><a href=${link}>${title}</a></dt>`
-	  $(itemHTML).appendTo($('.itemlist'));
-	});
-	return this._writeFile(prettyHTMLPath, $.html());
+      dataJSON.forEach((data) => {
+	let {rank, title, link} = data;
+	let itemHTML = `<dt><label>${rank} </label><a href=${link}>${title}</a></dt>`
+	$(itemHTML).appendTo($('.itemlist'));
       });
+      return this._writeFile(prettyHTMLPath, $.html());
     });
   }
 
