@@ -10,7 +10,7 @@
  * */
 
 module.exports = (opt) => {
-  console.log(process.argv);
+  /* console.log(process.argv);*/
   return require('./lib/index')(opt);
 }
 
