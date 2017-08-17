@@ -6,7 +6,7 @@
  *   const exported = require('./lib/index')();
  *   exported.scrape();
  * }
- * 
+ *
  * */
 
 module.exports = (opt) => {
@@ -17,7 +17,7 @@ module.exports = (opt) => {
 /* const HN = require('./lib/index')();*/
 /* HN.scrape();*/
 /* let date = '2017-08-06';
- * 
+ *
  * HN.getJSON(date).then((data) => {
  *   console.log(data)
  * }).catch(err => {
